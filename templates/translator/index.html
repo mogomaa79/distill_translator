@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NLLB Translator - German ↔ English</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+    <div class="container-fluid h-100">
+        <!-- Header -->
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom">
+            <div class="container">
+                <a class="navbar-brand d-flex align-items-center" href="#">
+                    <i class="fas fa-language text-primary me-2 fs-3"></i>
+                    <span class="fw-bold fs-4">NLLB Translator</span>
+                </a>
+                <div class="d-flex align-items-center">
+                    <div class="badge bg-success me-3">
+                        <i class="fas fa-microchip me-1"></i>
+                        <span id="device-info">{{ model_info.device|upper }}</span>
+                    </div>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-cog me-1"></i>
+                            <span id="current-model">{{ model_info.current_model }}</span>
+                        </button>
+                        <ul class="dropdown-menu">
+                            {% for model in available_models %}
+                            <li><a class="dropdown-item model-option" href="#" data-model-index="{{ forloop.counter0 }}">{{ model }}</a></li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="container my-5">
+            <div class="row justify-content-center">
+                <div class="col-12 col-lg-10">
+                    <!-- Language Selection -->
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-5">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-flag me-2 text-primary"></i>
+                                        <select class="form-select" id="source-lang">
+                                            <option value="">Auto-detect</option>
+                                            <option value="eng_Latn">🇺🇸 English</option>
+                                            <option value="deu_Latn">🇩🇪 German</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-2 text-center">
+                                    <button class="btn btn-primary btn-lg rounded-circle" id="swap-languages" title="Swap Languages">
+                                        <i class="fas fa-exchange-alt"></i>
+                                    </button>
+                                </div>
+                                <div class="col-md-5">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-flag me-2 text-success"></i>
+                                        <select class="form-select" id="target-lang">
+                                            <option value="">Auto-determine</option>
+                                            <option value="eng_Latn">🇺🇸 English</option>
+                                            <option value="deu_Latn">🇩🇪 German</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Translation Interface -->
+                    <div class="row">
+                        <!-- Source Text -->
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-header bg-primary text-white">
+                                    <h5 class="mb-0">
+                                        <i class="fas fa-edit me-2"></i>
+                                        Source Text
+                                        <span class="badge bg-light text-primary ms-2" id="source-lang-display">Auto-detect</span>
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <textarea 
+                                        class="form-control border-0 resize-none" 
+                                        id="source-text" 
+                                        rows="10" 
+                                        placeholder="Enter text to translate..."
+                                        style="height: 300px; outline: none; box-shadow: none;"></textarea>
+                                    <div class="d-flex justify-content-between align-items-center mt-3">
+                                        <small class="text-muted">
+                                            <span id="char-count">0</span> characters
+                                        </small>
+                                        <div>
+                                            <button class="btn btn-outline-secondary btn-sm me-2" id="clear-text" title="Clear Text">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm" id="paste-text" title="Paste from Clipboard">
+                                                <i class="fas fa-paste"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Translation Result -->
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-header bg-success text-white">
+                                    <h5 class="mb-0">
+                                        <i class="fas fa-language me-2"></i>
+                                        Translation
+                                        <span class="badge bg-light text-success ms-2" id="target-lang-display">Auto-determine</span>
+                                    </h5>
+                                </div>
+                                <div class="card-body position-relative">
+                                    <div id="translation-result" class="translation-output" style="height: 300px; overflow-y: auto;">
+                                        <div class="text-center text-muted mt-5">
+                                            <i class="fas fa-language fa-3x mb-3 opacity-50"></i>
+                                            <p>Translation will appear here</p>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center mt-3">
+                                        <small class="text-muted" id="translation-info">
+                                            Ready to translate
+                                        </small>
+                                        <div>
+                                            <button class="btn btn-outline-secondary btn-sm me-2" id="copy-translation" title="Copy Translation" style="display: none;">
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm" id="speak-translation" title="Speak Translation" style="display: none;">
+                                                <i class="fas fa-volume-up"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <!-- Loading Spinner -->
+                                    <div class="loading-spinner" id="loading-spinner" style="display: none;">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Translating...</span>
+                                        </div>
+                                        <p class="mt-2 text-muted">Translating...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Translate Button -->
+                    <div class="text-center mb-4">
+                        <button class="btn btn-primary btn-lg px-5 py-3 rounded-pill" id="translate-btn">
+                            <i class="fas fa-arrows-alt-h me-2"></i>
+                            Translate
+                        </button>
+                    </div>
+
+                    <!-- Recent Translations -->
+                    <div class="card shadow-sm">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-history me-2"></i>
+                                Recent Translations
+                                <button class="btn btn-sm btn-outline-danger ms-2" id="clear-history">
+                                    <i class="fas fa-trash"></i> Clear
+                                </button>
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="translation-history">
+                                <p class="text-muted text-center">No recent translations</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="{% static 'js/translator.js' %}"></script>
+</body>
+</html> 
