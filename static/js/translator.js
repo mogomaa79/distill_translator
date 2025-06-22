@@ -1,34 +1,41 @@
-// Distilled Translator JavaScript
+// OpenNMT Translator v2 JavaScript
 
 // Application state
 let translationHistory = JSON.parse(localStorage.getItem('translationHistory') || '[]');
 let currentModelIndex = 0;
 
-// DOM elements
-const sourceText = document.getElementById('sourceText');
-const sourceLang = document.getElementById('sourceLang');
-const targetLang = document.getElementById('targetLang');
-const translationResult = document.getElementById('translationResult');
-const translateBtn = document.getElementById('translateBtn');
-const swapBtn = document.getElementById('swapBtn');
-const clearBtn = document.getElementById('clearBtn');
-const pasteBtn = document.getElementById('pasteBtn');
-const copyBtn = document.getElementById('copyBtn');
-const speakBtn = document.getElementById('speakBtn');
-const charCount = document.getElementById('charCount');
-const detectedLang = document.getElementById('detectedLang');
-const currentModel = document.getElementById('currentModel');
-const currentDevice = document.getElementById('currentDevice');
-const historyContainer = document.getElementById('historyContainer');
-const loadingOverlay = document.getElementById('loadingOverlay');
-const modelModal = new bootstrap.Modal(document.getElementById('modelModal'));
-const modelList = document.getElementById('modelList');
+// DOM elements - Fixed IDs to match HTML template
+const sourceText = document.getElementById('source-text');
+const sourceLang = document.getElementById('source-lang');
+const targetLang = document.getElementById('target-lang');
+const translationResult = document.getElementById('translation-result');
+const translateBtn = document.getElementById('translate-btn');
+const swapBtn = document.getElementById('swap-languages');
+const clearBtn = document.getElementById('clear-text');
+const pasteBtn = document.getElementById('paste-text');
+const copyBtn = document.getElementById('copy-translation');
+const speakBtn = document.getElementById('speak-translation');
+const charCount = document.getElementById('char-count');
+const sourceLangDisplay = document.getElementById('source-lang-display');
+const targetLangDisplay = document.getElementById('target-lang-display');
+const translationInfo = document.getElementById('translation-info');
+const currentModel = document.getElementById('current-model');
+const deviceInfo = document.getElementById('device-info');
+const historyContainer = document.getElementById('translation-history');
+const clearHistoryBtn = document.getElementById('clear-history');
+const loadingSpinner = document.getElementById('loading-spinner');
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', function() {
-    loadModelInfo();
-    displayHistory();
-    setupEventListeners();
+    if (sourceText && sourceLang && targetLang && translateBtn) {
+        loadModelInfo();
+        displayHistory();
+        setupEventListeners();
+        updateCharCount();
+        toggleTranslateButton();
+    } else {
+        console.error('Required DOM elements not found');
+    }
 });
 
 // Event listeners
@@ -59,9 +66,27 @@ function setupEventListeners() {
     copyBtn.addEventListener('click', copyTranslation);
     speakBtn.addEventListener('click', speakTranslation);
 
-    // Settings
-    document.getElementById('modelSelect').addEventListener('click', showModelModal);
-    document.getElementById('clearHistory').addEventListener('click', clearHistory);
+    // Language change displays
+    sourceLang.addEventListener('change', updateLanguageDisplays);
+    targetLang.addEventListener('change', updateLanguageDisplays);
+
+    // Model selection from dropdown
+    document.querySelectorAll('.model-option').forEach(option => {
+        option.addEventListener('click', function(e) {
+            e.preventDefault();
+            const modelIndex = parseInt(this.getAttribute('data-model-index'));
+            switchModel(modelIndex);
+        });
+    });
+
+    // Clear history
+    clearHistoryBtn.addEventListener('click', clearHistory);
+}
+
+// Update language displays
+function updateLanguageDisplays() {
+    sourceLangDisplay.textContent = sourceLang.value ? getLanguageName(sourceLang.value) : 'Auto-detect';
+    targetLangDisplay.textContent = targetLang.value ? getLanguageName(targetLang.value) : 'Auto-determine';
 }
 
 // Load model information
@@ -72,40 +97,15 @@ async function loadModelInfo() {
         
         if (response.ok) {
             currentModel.textContent = data.current_model || 'Unknown';
-            currentDevice.textContent = data.device || 'Unknown';
-            
-            // Populate model selection modal
-            populateModelModal(data.available_models || []);
+            deviceInfo.textContent = (data.device || 'Unknown').toUpperCase();
         } else {
             console.error('Failed to load model info:', data.error);
         }
     } catch (error) {
         console.error('Error loading model info:', error);
         currentModel.textContent = 'Error';
-        currentDevice.textContent = 'Error';
+        deviceInfo.textContent = 'Error';
     }
-}
-
-// Populate model selection modal
-function populateModelModal(models) {
-    modelList.innerHTML = '';
-    
-    models.forEach((model, index) => {
-        const listItem = document.createElement('div');
-        listItem.className = `list-group-item list-group-item-action ${index === currentModelIndex ? 'active' : ''}`;
-        listItem.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="mb-1">${model}</h6>
-                    <small>Model ${index + 1}</small>
-                </div>
-                ${index === currentModelIndex ? '<i class="fas fa-check text-success"></i>' : ''}
-            </div>
-        `;
-        
-        listItem.addEventListener('click', () => switchModel(index));
-        modelList.appendChild(listItem);
-    });
 }
 
 // Switch model
@@ -117,23 +117,21 @@ async function switchModel(modelIndex) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
             },
             body: JSON.stringify({ model_index: modelIndex })
         });
         
         const data = await response.json();
         
-        if (response.ok) {
+        if (response.ok && data.success) {
             currentModelIndex = modelIndex;
-            currentModel.textContent = data.current_model;
-            modelModal.hide();
+            currentModel.textContent = data.model_info.current_model;
             showSuccess('Model switched successfully');
-            
-            // Update modal
-            populateModelModal(document.querySelectorAll('.list-group-item').length ? 
-                Array.from(document.querySelectorAll('.list-group-item h6')).map(h => h.textContent) : []);
+            // Update device info
+            deviceInfo.textContent = (data.model_info.device || 'Unknown').toUpperCase();
         } else {
-            showError('Failed to switch model: ' + data.error);
+            showError('Failed to switch model: ' + (data.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('Error switching model:', error);
@@ -153,26 +151,31 @@ async function performTranslation() {
         
         const requestData = {
             text: text,
-            source_lang: sourceLang.value === 'auto' ? null : sourceLang.value,
-            target_lang: targetLang.value,
-            auto_detect: sourceLang.value === 'auto'
+            source_lang: sourceLang.value || null,
+            target_lang: targetLang.value || null,
+            auto_detect: !sourceLang.value || sourceLang.value === ''
         };
 
         const response = await fetch('/api/translate/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
             },
             body: JSON.stringify(requestData)
         });
 
         const data = await response.json();
 
-        if (response.ok && data.success !== false) {
-            displayTranslation(data);
-            addToHistory(text, data.translation, data.detected_language || sourceLang.value, targetLang.value);
+        if (response.ok) {
+            if (data.success !== false && data.translated_text) {
+                displayTranslation(data);
+                addToHistory(text, data.translated_text, data.source_language, data.target_language);
+            } else {
+                showError('Translation failed: ' + (data.error || 'No translation result'));
+            }
         } else {
-            showError('Translation failed: ' + (data.error || 'Unknown error'));
+            showError('Translation failed: ' + (data.error || 'Network error'));
         }
     } catch (error) {
         console.error('Translation error:', error);
@@ -184,30 +187,36 @@ async function performTranslation() {
 
 // Display translation result
 function displayTranslation(data) {
-    translationResult.innerHTML = data.translation || 'No translation available';
-    translationResult.classList.add('has-content', 'slide-in-up');
+    translationResult.innerHTML = `<div class="p-3">${escapeHtml(data.translated_text || 'No translation available')}</div>`;
+    translationResult.classList.add('has-content');
     
     // Update language detection info
-    if (data.detected_language) {
-        detectedLang.textContent = `Detected: ${getLanguageName(data.detected_language)}`;
+    if (data.source_language) {
+        translationInfo.textContent = `${getLanguageName(data.source_language)} → ${getLanguageName(data.target_language)}`;
     }
     
-    // Enable action buttons
+    // Show and enable action buttons
+    copyBtn.style.display = 'inline-block';
+    speakBtn.style.display = 'inline-block';
     copyBtn.disabled = false;
     speakBtn.disabled = false;
 }
 
 // Utility functions
 function updateCharCount() {
-    charCount.textContent = sourceText.value.length;
+    if (charCount && sourceText) {
+        charCount.textContent = sourceText.value.length;
+    }
 }
 
 function toggleTranslateButton() {
-    translateBtn.disabled = !sourceText.value.trim();
+    if (translateBtn && sourceText) {
+        translateBtn.disabled = !sourceText.value.trim();
+    }
 }
 
 function swapLanguages() {
-    if (sourceLang.value === 'auto') return;
+    if (sourceLang.value === '' || sourceLang.value === 'auto') return;
     
     const sourceValue = sourceLang.value;
     const targetValue = targetLang.value;
@@ -216,26 +225,40 @@ function swapLanguages() {
     
     sourceLang.value = targetValue;
     targetLang.value = sourceValue;
-    sourceText.value = translationValue;
-    translationResult.innerHTML = sourceTextValue || '<div class="text-center text-muted mt-5"><i class="fas fa-language fa-3x mb-3"></i><p>Translation will appear here</p></div>';
+    sourceText.value = translationValue === 'Translation will appear here' ? '' : translationValue;
+    
+    if (sourceTextValue !== translationValue) {
+        translationResult.innerHTML = `<div class="p-3">${escapeHtml(sourceTextValue)}</div>`;
+        translationResult.classList.add('has-content');
+    } else {
+        translationResult.innerHTML = `
+            <div class="text-center text-muted mt-5">
+                <i class="fas fa-language fa-3x mb-3 opacity-50"></i>
+                <p>Translation will appear here</p>
+            </div>
+        `;
+        translationResult.classList.remove('has-content');
+        copyBtn.style.display = 'none';
+        speakBtn.style.display = 'none';
+    }
     
     updateCharCount();
     toggleTranslateButton();
-    
-    if (!sourceTextValue) {
-        copyBtn.disabled = true;
-        speakBtn.disabled = true;
-        translationResult.classList.remove('has-content');
-    }
+    updateLanguageDisplays();
 }
 
 function clearText() {
     sourceText.value = '';
-    translationResult.innerHTML = '<div class="text-center text-muted mt-5"><i class="fas fa-language fa-3x mb-3"></i><p>Translation will appear here</p></div>';
+    translationResult.innerHTML = `
+        <div class="text-center text-muted mt-5">
+            <i class="fas fa-language fa-3x mb-3 opacity-50"></i>
+            <p>Translation will appear here</p>
+        </div>
+    `;
     translationResult.classList.remove('has-content');
-    detectedLang.textContent = '';
-    copyBtn.disabled = true;
-    speakBtn.disabled = true;
+    translationInfo.textContent = 'Ready to translate';
+    copyBtn.style.display = 'none';
+    speakBtn.style.display = 'none';
     updateCharCount();
     toggleTranslateButton();
 }
@@ -246,6 +269,7 @@ async function pasteText() {
         sourceText.value = text;
         updateCharCount();
         toggleTranslateButton();
+        showSuccess('Text pasted from clipboard');
     } catch (error) {
         console.error('Failed to paste text:', error);
         showError('Failed to paste text from clipboard');
@@ -254,7 +278,8 @@ async function pasteText() {
 
 async function copyTranslation() {
     try {
-        await navigator.clipboard.writeText(translationResult.textContent);
+        const textContent = translationResult.textContent.trim();
+        await navigator.clipboard.writeText(textContent);
         showSuccess('Translation copied to clipboard');
     } catch (error) {
         console.error('Failed to copy text:', error);
@@ -264,7 +289,8 @@ async function copyTranslation() {
 
 function speakTranslation() {
     if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(translationResult.textContent);
+        const textContent = translationResult.textContent.trim();
+        const utterance = new SpeechSynthesisUtterance(textContent);
         utterance.lang = getLanguageCode(targetLang.value);
         speechSynthesis.speak(utterance);
     } else {
@@ -295,13 +321,15 @@ function addToHistory(source, translation, sourceLang, targetLang) {
 }
 
 function displayHistory() {
+    if (!historyContainer) return;
+    
     if (translationHistory.length === 0) {
-        historyContainer.innerHTML = '<div class="text-center text-muted"><i class="fas fa-history fa-2x mb-2"></i><p>No translations yet</p></div>';
+        historyContainer.innerHTML = '<p class="text-muted text-center">No recent translations</p>';
         return;
     }
     
     historyContainer.innerHTML = translationHistory.map(item => `
-        <div class="history-item" onclick="loadHistoryItem('${item.id}')">
+        <div class="history-item border-bottom pb-3 mb-3" onclick="loadHistoryItem('${item.id}')">
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
                     <div class="fw-bold text-primary mb-1">${escapeHtml(item.source)}</div>
@@ -325,11 +353,14 @@ function loadHistoryItem(id) {
         sourceText.value = item.source;
         sourceLang.value = item.sourceLang;
         targetLang.value = item.targetLang;
-        translationResult.innerHTML = item.translation;
+        translationResult.innerHTML = `<div class="p-3">${escapeHtml(item.translation)}</div>`;
         translationResult.classList.add('has-content');
         
         updateCharCount();
         toggleTranslateButton();
+        updateLanguageDisplays();
+        copyBtn.style.display = 'inline-block';
+        speakBtn.style.display = 'inline-block';
         copyBtn.disabled = false;
         speakBtn.disabled = false;
     }
@@ -340,6 +371,7 @@ function removeHistoryItem(event, id) {
     translationHistory = translationHistory.filter(h => h.id != id);
     localStorage.setItem('translationHistory', JSON.stringify(translationHistory));
     displayHistory();
+    showSuccess('Translation removed from history');
 }
 
 function clearHistory() {
@@ -351,35 +383,40 @@ function clearHistory() {
     }
 }
 
-// Modal functions
-function showModelModal() {
-    modelModal.show();
-}
-
 // UI feedback functions
 function showLoading(message = 'Loading...') {
-    loadingOverlay.querySelector('div:last-child').textContent = message;
-    loadingOverlay.classList.add('show');
+    if (loadingSpinner) {
+        loadingSpinner.style.display = 'flex';
+        if (loadingSpinner.querySelector('p')) {
+            loadingSpinner.querySelector('p').textContent = message;
+        }
+    }
+    if (translateBtn) {
+        translateBtn.disabled = true;
+    }
 }
 
 function hideLoading() {
-    loadingOverlay.classList.remove('show');
+    if (loadingSpinner) {
+        loadingSpinner.style.display = 'none';
+    }
+    if (translateBtn && sourceText) {
+        translateBtn.disabled = !sourceText.value.trim();
+    }
 }
 
 function showSuccess(message) {
-    // Create and show success toast/notification
     showNotification(message, 'success');
 }
 
 function showError(message) {
-    // Create and show error toast/notification
     showNotification(message, 'error');
 }
 
 function showNotification(message, type) {
     const notification = document.createElement('div');
     notification.className = `alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show position-fixed`;
-    notification.style.cssText = 'top: 20px; right: 20px; z-index: 10000; min-width: 300px;';
+    notification.style.cssText = 'top: 20px; right: 20px; z-index: 10000; min-width: 300px; max-width: 400px;';
     notification.innerHTML = `
         ${message}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
@@ -401,6 +438,7 @@ function getLanguageName(code) {
         'auto': 'Auto-detect',
         'de': 'German',
         'en': 'English',
+        '': 'Auto-detect',
         // Legacy NLLB codes for backward compatibility
         'deu_Latn': 'German',
         'eng_Latn': 'English',
@@ -427,6 +465,7 @@ function getLanguageCode(floresCode) {
         // OpenNMT codes
         'de': 'de',
         'en': 'en',
+        '': 'en',
         // Legacy NLLB codes for backward compatibility
         'deu_Latn': 'de',
         'eng_Latn': 'en',
@@ -452,6 +491,20 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function getCsrfToken() {
+    // Get CSRF token from cookies or meta tag
+    const cookieValue = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrftoken='))
+        ?.split('=')[1];
+    
+    if (cookieValue) return cookieValue;
+    
+    // Fallback to meta tag
+    const csrfMeta = document.querySelector('meta[name=csrf-token]');
+    return csrfMeta ? csrfMeta.getAttribute('content') : '';
 }
 
 // Service worker registration for PWA capabilities (optional)

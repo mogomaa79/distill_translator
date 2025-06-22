@@ -24,8 +24,10 @@ class OpenNMTTranslationService:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.compute_type = self._get_compute_type()
         self._lock = threading.Lock()
-        self._install_dependencies()
-        self._initialize_default_model()
+        self._dependencies_installed = False
+        # Don't install dependencies at startup to avoid conflicts
+        # self._install_dependencies()
+        # self._initialize_default_model()
     
     def _get_compute_type(self) -> str:
         """Determine the best compute type based on device"""
@@ -36,19 +38,24 @@ class OpenNMTTranslationService:
     
     def _install_dependencies(self):
         """Install required dependencies if not present"""
-        dependencies = [
-            ("OpenNMT-py", "onmt"),
-            ("subword-nmt", "subword_nmt")
-        ]
-        
-        for dep_name, import_name in dependencies:
+        if self._dependencies_installed:
+            return
+            
+        # Don't check for OpenNMT or spacy to avoid import conflicts
+        # Just ensure subword-nmt is available
+        try:
+            import subword_nmt
+            print("subword-nmt is already available.")
+            self._dependencies_installed = True
+        except ImportError:
+            print("Installing subword-nmt...")
             try:
-                __import__(import_name)
-                print(f"{dep_name} is already installed.")
-            except ImportError:
-                print(f"Installing {dep_name}...")
-                subprocess.run([sys.executable, "-m", "pip", "install", dep_name], check=True)
-                print(f"{dep_name} installed successfully.")
+                subprocess.run([sys.executable, "-m", "pip", "install", "subword-nmt"], 
+                             check=True, capture_output=True)
+                print("subword-nmt installed successfully.")
+                self._dependencies_installed = True
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to install subword-nmt: {e}")
     
     def _download_file(self, url: str, local_path: str) -> bool:
         """Download a file from URL to local path"""
@@ -73,20 +80,27 @@ class OpenNMTTranslationService:
         print(f"Converting {model_info['local_model_path']} to CTranslate2 format...")
         
         try:
-            subprocess.run([
+            # Use ct2-opennmt-py-converter command
+            cmd = [
                 "ct2-opennmt-py-converter",
                 "--model_path", model_info['local_model_path'],
                 "--output_dir", model_info['ct2_model_path'],
                 "--quantization", "int8"
-            ], check=True)
+            ]
+            
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
             print(f"Model converted to CTranslate2 format at {model_info['ct2_model_path']}")
             return True
         except subprocess.CalledProcessError as e:
             print(f"Error converting model: {e}")
+            print(f"stderr: {e.stderr}")
             return False
     
     def _apply_bpe_to_text(self, text_lines: List[str], bpe_model_path: str) -> List[List[str]]:
         """Apply BPE to a list of text lines"""
+        if not self._dependencies_installed:
+            self._install_dependencies()
+            
         with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as temp_input:
             temp_input_path = temp_input.name
             for line in text_lines:
@@ -96,27 +110,19 @@ class OpenNMTTranslationService:
             temp_output_path = temp_output.name
         
         try:
-            # Apply BPE with OpenNMT-compatible settings
-            subprocess.run([
+            # Apply BPE with basic settings first
+            cmd = [
                 "subword-nmt", "apply-bpe",
                 "-c", bpe_model_path,
                 "--input", temp_input_path,
-                "--output", temp_output_path,
-                "--separator", "￭",  # OpenNMT-style separator
-                "--glossaries", "Jaguar,Milky,Way,Inuit,Himalaya,Dharma,anthropology"
-            ], check=True)
-        except subprocess.CalledProcessError:
-            try:
-                # Fallback to standard BPE
-                subprocess.run([
-                    "subword-nmt", "apply-bpe",
-                    "-c", bpe_model_path,
-                    "--input", temp_input_path,
-                    "--output", temp_output_path
-                ], check=True)
-            except subprocess.CalledProcessError as e:
-                print(f"BPE application failed: {e}")
-                return []
+                "--output", temp_output_path
+            ]
+            
+            subprocess.run(cmd, check=True, capture_output=True)
+            
+        except subprocess.CalledProcessError as e:
+            print(f"BPE application failed: {e}")
+            return []
         
         # Read BPE-encoded text
         try:
@@ -246,8 +252,19 @@ class OpenNMTTranslationService:
         Returns:
             Dictionary with translation result and metadata
         """
+        # Lazy initialization
+        if not self.translator:
+            print("Initializing OpenNMT model...")
+            self._initialize_default_model()
+        
         if not self.translator or not self.current_model:
-            raise RuntimeError("OpenNMT translation model not initialized")
+            return {
+                'translated_text': '',
+                'source_language': source_lang or 'en',
+                'target_language': target_lang or 'de',
+                'error': 'OpenNMT translation model not initialized',
+                'success': False
+            }
         
         # Auto-detect source language if not provided
         if auto_detect and not source_lang:
@@ -275,7 +292,7 @@ class OpenNMTTranslationService:
             with self._lock:
                 results = self.translator.translate_batch(
                     [bpe_tokens],
-                    beam_size=8,              # Higher beam size for better quality
+                    beam_size=4,              # Smaller beam size for faster inference
                     max_decoding_length=256,  # Allow longer outputs
                     length_penalty=0.8,       # Encourage longer outputs
                     repetition_penalty=1.1,   # Reduce repetition
@@ -314,7 +331,7 @@ class OpenNMTTranslationService:
     def get_model_info(self) -> Dict:
         """Get current model information"""
         return {
-            'current_model': self.current_model['name'] if self.current_model else 'None',
+            'current_model': self.current_model['name'] if self.current_model else 'OpenNMT-v3-EN-DE-Large',
             'device': self.device,
             'compute_type': self.compute_type,
             'available_models': [model['name'] for model in OPENNMT_MODELS],

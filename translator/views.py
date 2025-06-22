@@ -7,17 +7,32 @@ from rest_framework.response import Response
 from rest_framework import status
 import json
 import logging
-from .opennmt_translation_service import opennmt_translation_service
 from config import OPENNMT_MODELS, SUPPORTED_LANGUAGES
 
 logger = logging.getLogger(__name__)
 
+def get_translation_service():
+    """Lazy import of translation service to avoid startup conflicts"""
+    from .opennmt_translation_service import opennmt_translation_service
+    return opennmt_translation_service
+
 def index(request):
     """Main translation interface"""
+    try:
+        service = get_translation_service()
+        model_info = service.get_model_info()
+    except Exception as e:
+        logger.error(f"Error getting model info: {e}")
+        model_info = {
+            'current_model': 'OpenNMT-v3-EN-DE-Large',
+            'device': 'CPU',
+            'model_type': 'OpenNMT v3'
+        }
+    
     context = {
         'supported_languages': SUPPORTED_LANGUAGES,
         'available_models': [model['name'] for model in OPENNMT_MODELS],
-        'model_info': opennmt_translation_service.get_model_info()
+        'model_info': model_info
     }
     return render(request, 'translator/index.html', context)
 
@@ -63,7 +78,8 @@ def translate_text(request):
             )
         
         # Perform translation using OpenNMT
-        result = opennmt_translation_service.translate(
+        service = get_translation_service()
+        result = service.translate(
             text=text,
             source_lang=source_lang,
             target_lang=target_lang,
@@ -94,7 +110,8 @@ def translate_text(request):
 def model_info(request):
     """Get current model information and available options"""
     try:
-        info = opennmt_translation_service.get_model_info()
+        service = get_translation_service()
+        info = service.get_model_info()
         return Response(info, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Error getting model info: {str(e)}")
@@ -129,10 +146,11 @@ def switch_model(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        success = opennmt_translation_service.switch_model(model_index)
+        service = get_translation_service()
+        success = service.switch_model(model_index)
         
         if success:
-            info = opennmt_translation_service.get_model_info()
+            info = service.get_model_info()
             return Response({
                 'success': True,
                 'message': f'Successfully switched to {OPENNMT_MODELS[model_index]["name"]}',
@@ -171,7 +189,8 @@ def detect_language(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        detected_lang = opennmt_translation_service.detect_language(text)
+        service = get_translation_service()
+        detected_lang = service.detect_language(text)
         
         return Response({
             'detected_language': detected_lang,
@@ -190,11 +209,12 @@ def detect_language(request):
 def health_check(request):
     """Health check endpoint"""
     try:
-        model_loaded = opennmt_translation_service.translator is not None
+        service = get_translation_service()
+        model_loaded = service.translator is not None
         return Response({
             'status': 'healthy' if model_loaded else 'unhealthy',
             'model_loaded': model_loaded,
-            'device': opennmt_translation_service.device,
+            'device': service.device,
             'model_type': 'OpenNMT v3',
             'timestamp': request.META.get('HTTP_DATE', 'unknown')
         }, status=status.HTTP_200_OK)
