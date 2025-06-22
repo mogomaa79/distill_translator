@@ -7,9 +7,11 @@ __pycache__/
 distilled*/
 nllb*/
 *.model
-
+*.pt
+ende*/
 # C extensions
 *.so
+*.bpe
 
 # Distribution / packaging
 .Python

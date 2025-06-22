@@ -7,6 +7,7 @@ import threading
 import tempfile
 import re
 import sys
+import shutil
 from typing import List, Tuple, Dict, Optional
 from django.conf import settings
 from config import OPENNMT_MODELS, DEFAULT_MODEL_INDEX, SUPPORTED_LANGUAGES
@@ -79,22 +80,65 @@ class OpenNMTTranslationService:
         
         print(f"Converting {model_info['local_model_path']} to CTranslate2 format...")
         
-        try:
-            # Use ct2-opennmt-py-converter command
-            cmd = [
-                "ct2-opennmt-py-converter",
-                "--model_path", model_info['local_model_path'],
-                "--output_dir", model_info['ct2_model_path'],
-                "--quantization", "int8"
-            ]
-            
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-            print(f"Model converted to CTranslate2 format at {model_info['ct2_model_path']}")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"Error converting model: {e}")
-            print(f"stderr: {e.stderr}")
-            return False
+        # Try different quantization levels to avoid segfaults
+        quantization_options = ["int8", "int16", "float16", "float32"]
+        
+        for quantization in quantization_options:
+            try:
+                print(f"Attempting conversion with {quantization} quantization...")
+                
+                # Use ct2-opennmt-py-converter command
+                cmd = [
+                    "ct2-opennmt-py-converter",
+                    "--model_path", model_info['local_model_path'],
+                    "--output_dir", model_info['ct2_model_path'],
+                    "--quantization", quantization
+                ]
+                
+                # Set environment variables to potentially avoid segfaults
+                env = os.environ.copy()
+                env['OMP_NUM_THREADS'] = '1'  # Reduce thread conflicts
+                env['MKL_NUM_THREADS'] = '1'  # Reduce MKL conflicts
+                
+                result = subprocess.run(
+                    cmd, 
+                    check=True, 
+                    capture_output=True, 
+                    text=True,
+                    timeout=300,  # 5 minute timeout
+                    env=env
+                )
+                
+                print(f"Model converted successfully with {quantization} quantization at {model_info['ct2_model_path']}")
+                return True
+                
+            except subprocess.CalledProcessError as e:
+                print(f"Conversion failed with {quantization} quantization: {e}")
+                print(f"stderr: {e.stderr}")
+                # Clean up failed conversion attempt
+                if os.path.exists(model_info['ct2_model_path']):
+                    import shutil
+                    shutil.rmtree(model_info['ct2_model_path'])
+                continue
+                
+            except subprocess.TimeoutExpired:
+                print(f"Conversion with {quantization} timed out")
+                # Clean up failed conversion attempt
+                if os.path.exists(model_info['ct2_model_path']):
+                    import shutil
+                    shutil.rmtree(model_info['ct2_model_path'])
+                continue
+                
+            except Exception as e:
+                print(f"Unexpected error with {quantization}: {e}")
+                # Clean up failed conversion attempt
+                if os.path.exists(model_info['ct2_model_path']):
+                    import shutil
+                    shutil.rmtree(model_info['ct2_model_path'])
+                continue
+        
+        print("All conversion attempts failed. Model conversion unsuccessful.")
+        return False
     
     def _apply_bpe_to_text(self, text_lines: List[str], bpe_model_path: str) -> List[List[str]]:
         """Apply BPE to a list of text lines"""
