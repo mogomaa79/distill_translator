@@ -1,431 +1,451 @@
-// NLLB Translator JavaScript
+// Distilled Translator JavaScript
 
-class TranslatorApp {
-    constructor() {
-        this.initializeElements();
-        this.attachEventListeners();
-        this.loadTranslationHistory();
-        this.updateLanguageDisplays();
-    }
+// Application state
+let translationHistory = JSON.parse(localStorage.getItem('translationHistory') || '[]');
+let currentModelIndex = 0;
 
-    initializeElements() {
-        // Form elements
-        this.sourceText = document.getElementById('source-text');
-        this.sourceLang = document.getElementById('source-lang');
-        this.targetLang = document.getElementById('target-lang');
-        this.translateBtn = document.getElementById('translate-btn');
-        this.swapBtn = document.getElementById('swap-languages');
-        
-        // Display elements
-        this.translationResult = document.getElementById('translation-result');
-        this.loadingSpinner = document.getElementById('loading-spinner');
-        this.charCount = document.getElementById('char-count');
-        this.translationInfo = document.getElementById('translation-info');
-        this.sourceLangDisplay = document.getElementById('source-lang-display');
-        this.targetLangDisplay = document.getElementById('target-lang-display');
-        
-        // Button elements
-        this.clearTextBtn = document.getElementById('clear-text');
-        this.pasteTextBtn = document.getElementById('paste-text');
-        this.copyTranslationBtn = document.getElementById('copy-translation');
-        this.speakTranslationBtn = document.getElementById('speak-translation');
-        this.clearHistoryBtn = document.getElementById('clear-history');
-        
-        // History and model elements
-        this.translationHistory = document.getElementById('translation-history');
-        this.currentModelSpan = document.getElementById('current-model');
-        this.modelOptions = document.querySelectorAll('.model-option');
-        
-        // Translation history array
-        this.history = JSON.parse(localStorage.getItem('translationHistory') || '[]');
-    }
+// DOM elements
+const sourceText = document.getElementById('sourceText');
+const sourceLang = document.getElementById('sourceLang');
+const targetLang = document.getElementById('targetLang');
+const translationResult = document.getElementById('translationResult');
+const translateBtn = document.getElementById('translateBtn');
+const swapBtn = document.getElementById('swapBtn');
+const clearBtn = document.getElementById('clearBtn');
+const pasteBtn = document.getElementById('pasteBtn');
+const copyBtn = document.getElementById('copyBtn');
+const speakBtn = document.getElementById('speakBtn');
+const charCount = document.getElementById('charCount');
+const detectedLang = document.getElementById('detectedLang');
+const currentModel = document.getElementById('currentModel');
+const currentDevice = document.getElementById('currentDevice');
+const historyContainer = document.getElementById('historyContainer');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const modelModal = new bootstrap.Modal(document.getElementById('modelModal'));
+const modelList = document.getElementById('modelList');
 
-    attachEventListeners() {
-        // Main translation functionality
-        this.translateBtn.addEventListener('click', () => this.translateText());
-        this.sourceText.addEventListener('input', () => this.updateCharCount());
-        this.sourceText.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.key === 'Enter') {
-                this.translateText();
-            }
-        });
+// Initialize application
+document.addEventListener('DOMContentLoaded', function() {
+    loadModelInfo();
+    displayHistory();
+    setupEventListeners();
+});
 
-        // Language controls
-        this.swapBtn.addEventListener('click', () => this.swapLanguages());
-        this.sourceLang.addEventListener('change', () => this.updateLanguageDisplays());
-        this.targetLang.addEventListener('change', () => this.updateLanguageDisplays());
+// Event listeners
+function setupEventListeners() {
+    // Text input
+    sourceText.addEventListener('input', function() {
+        updateCharCount();
+        toggleTranslateButton();
+    });
 
-        // Text controls
-        this.clearTextBtn.addEventListener('click', () => this.clearText());
-        this.pasteTextBtn.addEventListener('click', () => this.pasteText());
-        this.copyTranslationBtn.addEventListener('click', () => this.copyTranslation());
-        this.speakTranslationBtn.addEventListener('click', () => this.speakTranslation());
-
-        // History controls
-        this.clearHistoryBtn.addEventListener('click', () => this.clearHistory());
-
-        // Model switching
-        this.modelOptions.forEach(option => {
-            option.addEventListener('click', (e) => {
-                e.preventDefault();
-                const modelIndex = parseInt(option.dataset.modelIndex);
-                this.switchModel(modelIndex);
-            });
-        });
-
-        // Auto-resize textarea
-        this.sourceText.addEventListener('input', () => this.autoResizeTextarea());
-    }
-
-    updateCharCount() {
-        const count = this.sourceText.value.length;
-        this.charCount.textContent = count;
-        
-        // Update translate button state
-        this.translateBtn.disabled = count === 0;
-        
-        if (count === 0) {
-            this.translateBtn.innerHTML = '<i class="fas fa-arrows-alt-h me-2"></i>Translate';
-        } else {
-            this.translateBtn.innerHTML = '<i class="fas fa-arrows-alt-h me-2"></i>Translate (' + count + ' chars)';
+    // Translation
+    translateBtn.addEventListener('click', performTranslation);
+    
+    // Keyboard shortcut for translation
+    sourceText.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            performTranslation();
         }
-    }
+    });
 
-    updateLanguageDisplays() {
-        const sourceValue = this.sourceLang.value;
-        const targetValue = this.targetLang.value;
+    // Language swap
+    swapBtn.addEventListener('click', swapLanguages);
+
+    // Utility buttons
+    clearBtn.addEventListener('click', clearText);
+    pasteBtn.addEventListener('click', pasteText);
+    copyBtn.addEventListener('click', copyTranslation);
+    speakBtn.addEventListener('click', speakTranslation);
+
+    // Settings
+    document.getElementById('modelSelect').addEventListener('click', showModelModal);
+    document.getElementById('clearHistory').addEventListener('click', clearHistory);
+}
+
+// Load model information
+async function loadModelInfo() {
+    try {
+        const response = await fetch('/api/model-info/');
+        const data = await response.json();
         
-        const sourceText = sourceValue ? this.getLanguageName(sourceValue) : 'Auto-detect';
-        const targetText = targetValue ? this.getLanguageName(targetValue) : 'Auto-determine';
-        
-        this.sourceLangDisplay.textContent = sourceText;
-        this.targetLangDisplay.textContent = targetText;
-    }
-
-    getLanguageName(code) {
-        const languages = {
-            'eng_Latn': '🇺🇸 English',
-            'deu_Latn': '🇩🇪 German'
-        };
-        return languages[code] || code;
-    }
-
-    swapLanguages() {
-        const sourceValue = this.sourceLang.value;
-        const targetValue = this.targetLang.value;
-        const sourceTextValue = this.sourceText.value;
-        const translationText = this.getTranslationText();
-
-        // Swap language selections
-        this.sourceLang.value = targetValue;
-        this.targetLang.value = sourceValue;
-
-        // Swap text content if translation exists
-        if (translationText && translationText !== 'Translation will appear here') {
-            this.sourceText.value = translationText;
-            this.updateCharCount();
-        }
-
-        this.updateLanguageDisplays();
-        
-        // Add visual feedback
-        this.swapBtn.classList.add('pulse');
-        setTimeout(() => this.swapBtn.classList.remove('pulse'), 1000);
-    }
-
-    async translateText() {
-        const text = this.sourceText.value.trim();
-        if (!text) return;
-
-        this.showLoading(true);
-        this.translateBtn.disabled = true;
-
-        try {
-            const response = await fetch('/api/translate/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': this.getCSRFToken()
-                },
-                body: JSON.stringify({
-                    text: text,
-                    source_lang: this.sourceLang.value || null,
-                    target_lang: this.targetLang.value || null,
-                    auto_detect: true
-                })
-            });
-
-            const result = await response.json();
-
-            if (response.ok && result.success) {
-                this.displayTranslation(result);
-                this.addToHistory(text, result);
-            } else {
-                this.showError(result.error || 'Translation failed');
-            }
-        } catch (error) {
-            console.error('Translation error:', error);
-            this.showError('Network error. Please try again.');
-        } finally {
-            this.showLoading(false);
-            this.translateBtn.disabled = false;
-        }
-    }
-
-    displayTranslation(result) {
-        const translationText = result.translated_text;
-        
-        this.translationResult.innerHTML = `
-            <div class="translation-text fade-in">${this.escapeHtml(translationText)}</div>
-        `;
-        
-        this.translationResult.classList.add('has-content');
-        
-        // Update info
-        this.translationInfo.innerHTML = `
-            <i class="fas fa-check-circle text-success me-1"></i>
-            ${result.source_language_name} → ${result.target_language_name} 
-            <span class="badge bg-primary ms-1">${result.model_name}</span>
-        `;
-
-        // Show action buttons
-        this.copyTranslationBtn.style.display = 'inline-block';
-        this.speakTranslationBtn.style.display = 'inline-block';
-
-        // Update language displays with detected languages
-        if (result.source_language) {
-            this.sourceLangDisplay.textContent = result.source_language_name;
-        }
-        if (result.target_language) {
-            this.targetLangDisplay.textContent = result.target_language_name;
-        }
-    }
-
-    showError(message) {
-        this.translationResult.innerHTML = `
-            <div class="text-center text-danger mt-5 fade-in">
-                <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
-                <p>${this.escapeHtml(message)}</p>
-            </div>
-        `;
-        this.translationResult.classList.remove('has-content');
-        this.translationInfo.innerHTML = '<i class="fas fa-times-circle text-danger me-1"></i>Translation failed';
-    }
-
-    showLoading(show) {
-        this.loadingSpinner.style.display = show ? 'block' : 'none';
-        
-        if (show) {
-            this.translateBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Translating...';
-        } else {
-            this.updateCharCount(); // This will reset the button text
-        }
-    }
-
-    getTranslationText() {
-        const textDiv = this.translationResult.querySelector('.translation-text');
-        return textDiv ? textDiv.textContent : '';
-    }
-
-    clearText() {
-        this.sourceText.value = '';
-        this.updateCharCount();
-        this.sourceText.focus();
-    }
-
-    async pasteText() {
-        try {
-            const text = await navigator.clipboard.readText();
-            this.sourceText.value = text;
-            this.updateCharCount();
-            this.sourceText.focus();
-        } catch (error) {
-            console.error('Paste failed:', error);
-            // Fallback for browsers that don't support clipboard API
-            this.sourceText.focus();
-        }
-    }
-
-    async copyTranslation() {
-        const translationText = this.getTranslationText();
-        if (!translationText) return;
-
-        try {
-            await navigator.clipboard.writeText(translationText);
+        if (response.ok) {
+            currentModel.textContent = data.current_model || 'Unknown';
+            currentDevice.textContent = data.device || 'Unknown';
             
-            // Visual feedback
-            const originalText = this.copyTranslationBtn.innerHTML;
-            this.copyTranslationBtn.innerHTML = '<i class="fas fa-check"></i>';
-            this.copyTranslationBtn.classList.add('btn-success');
-            
-            setTimeout(() => {
-                this.copyTranslationBtn.innerHTML = originalText;
-                this.copyTranslationBtn.classList.remove('btn-success');
-            }, 1500);
-        } catch (error) {
-            console.error('Copy failed:', error);
+            // Populate model selection modal
+            populateModelModal(data.available_models || []);
+        } else {
+            console.error('Failed to load model info:', data.error);
         }
-    }
-
-    speakTranslation() {
-        const translationText = this.getTranslationText();
-        if (!translationText || !('speechSynthesis' in window)) return;
-
-        // Stop any ongoing speech
-        speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(translationText);
-        
-        // Try to set appropriate language
-        const targetLang = this.targetLang.value;
-        if (targetLang === 'eng_Latn') {
-            utterance.lang = 'en-US';
-        } else if (targetLang === 'deu_Latn') {
-            utterance.lang = 'de-DE';
-        }
-
-        // Visual feedback
-        this.speakTranslationBtn.classList.add('pulse');
-        utterance.onend = () => {
-            this.speakTranslationBtn.classList.remove('pulse');
-        };
-
-        speechSynthesis.speak(utterance);
-    }
-
-    addToHistory(sourceText, result) {
-        const historyItem = {
-            id: Date.now(),
-            source: sourceText,
-            translation: result.translated_text,
-            sourceLang: result.source_language_name,
-            targetLang: result.target_language_name,
-            model: result.model_name,
-            timestamp: new Date().toLocaleString()
-        };
-
-        this.history.unshift(historyItem);
-        this.history = this.history.slice(0, 10); // Keep only last 10 translations
-
-        this.saveHistory();
-        this.renderHistory();
-    }
-
-    renderHistory() {
-        if (this.history.length === 0) {
-            this.translationHistory.innerHTML = '<p class="text-muted text-center">No recent translations</p>';
-            return;
-        }
-
-        const historyHTML = this.history.map(item => `
-            <div class="history-item fade-in" data-id="${item.id}">
-                <div class="history-source">${this.escapeHtml(item.source)}</div>
-                <div class="history-translation">${this.escapeHtml(item.translation)}</div>
-                <div class="history-meta">
-                    ${item.sourceLang} → ${item.targetLang} • ${item.model} • ${item.timestamp}
-                </div>
-            </div>
-        `).join('');
-
-        this.translationHistory.innerHTML = historyHTML;
-
-        // Add click handlers for history items
-        this.translationHistory.querySelectorAll('.history-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const sourceText = item.querySelector('.history-source').textContent;
-                this.sourceText.value = sourceText;
-                this.updateCharCount();
-                this.sourceText.scrollIntoView({ behavior: 'smooth' });
-            });
-        });
-    }
-
-    clearHistory() {
-        this.history = [];
-        this.saveHistory();
-        this.renderHistory();
-    }
-
-    loadTranslationHistory() {
-        this.renderHistory();
-    }
-
-    saveHistory() {
-        localStorage.setItem('translationHistory', JSON.stringify(this.history));
-    }
-
-    async switchModel(modelIndex) {
-        try {
-            const response = await fetch('/api/switch-model/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': this.getCSRFToken()
-                },
-                body: JSON.stringify({ model_index: modelIndex })
-            });
-
-            const result = await response.json();
-
-            if (response.ok && result.success) {
-                this.currentModelSpan.textContent = result.model_info.current_model;
-                
-                // Show success notification
-                this.showNotification('Model switched successfully!', 'success');
-            } else {
-                this.showNotification(result.error || 'Failed to switch model', 'error');
-            }
-        } catch (error) {
-            console.error('Model switch error:', error);
-            this.showNotification('Network error', 'error');
-        }
-    }
-
-    showNotification(message, type = 'info') {
-        // Create notification element
-        const notification = document.createElement('div');
-        notification.className = `alert alert-${type === 'error' ? 'danger' : 'success'} fade-in position-fixed`;
-        notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-        notification.innerHTML = `
-            <i class="fas fa-${type === 'error' ? 'exclamation-triangle' : 'check-circle'} me-2"></i>
-            ${message}
-        `;
-
-        document.body.appendChild(notification);
-
-        // Remove after 3 seconds
-        setTimeout(() => {
-            notification.remove();
-        }, 3000);
-    }
-
-    autoResizeTextarea() {
-        // Auto-resize functionality could be added here if needed
-    }
-
-    getCSRFToken() {
-        // Get CSRF token from cookie
-        const cookies = document.cookie.split(';');
-        for (let cookie of cookies) {
-            const [name, value] = cookie.trim().split('=');
-            if (name === 'csrftoken') {
-                return value;
-            }
-        }
-        return '';
-    }
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+    } catch (error) {
+        console.error('Error loading model info:', error);
+        currentModel.textContent = 'Error';
+        currentDevice.textContent = 'Error';
     }
 }
 
-// Initialize the app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new TranslatorApp();
-});
+// Populate model selection modal
+function populateModelModal(models) {
+    modelList.innerHTML = '';
+    
+    models.forEach((model, index) => {
+        const listItem = document.createElement('div');
+        listItem.className = `list-group-item list-group-item-action ${index === currentModelIndex ? 'active' : ''}`;
+        listItem.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="mb-1">${model}</h6>
+                    <small>Model ${index + 1}</small>
+                </div>
+                ${index === currentModelIndex ? '<i class="fas fa-check text-success"></i>' : ''}
+            </div>
+        `;
+        
+        listItem.addEventListener('click', () => switchModel(index));
+        modelList.appendChild(listItem);
+    });
+}
+
+// Switch model
+async function switchModel(modelIndex) {
+    try {
+        showLoading('Switching model...');
+        
+        const response = await fetch('/api/switch-model/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ model_index: modelIndex })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            currentModelIndex = modelIndex;
+            currentModel.textContent = data.current_model;
+            modelModal.hide();
+            showSuccess('Model switched successfully');
+            
+            // Update modal
+            populateModelModal(document.querySelectorAll('.list-group-item').length ? 
+                Array.from(document.querySelectorAll('.list-group-item h6')).map(h => h.textContent) : []);
+        } else {
+            showError('Failed to switch model: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error switching model:', error);
+        showError('Error switching model');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Perform translation
+async function performTranslation() {
+    const text = sourceText.value.trim();
+    if (!text) return;
+
+    try {
+        showLoading('Translating...');
+        
+        const requestData = {
+            text: text,
+            source_lang: sourceLang.value === 'auto' ? null : sourceLang.value,
+            target_lang: targetLang.value,
+            auto_detect: sourceLang.value === 'auto'
+        };
+
+        const response = await fetch('/api/translate/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success !== false) {
+            displayTranslation(data);
+            addToHistory(text, data.translation, data.detected_language || sourceLang.value, targetLang.value);
+        } else {
+            showError('Translation failed: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Translation error:', error);
+        showError('Network error occurred');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Display translation result
+function displayTranslation(data) {
+    translationResult.innerHTML = data.translation || 'No translation available';
+    translationResult.classList.add('has-content', 'slide-in-up');
+    
+    // Update language detection info
+    if (data.detected_language) {
+        detectedLang.textContent = `Detected: ${getLanguageName(data.detected_language)}`;
+    }
+    
+    // Enable action buttons
+    copyBtn.disabled = false;
+    speakBtn.disabled = false;
+}
+
+// Utility functions
+function updateCharCount() {
+    charCount.textContent = sourceText.value.length;
+}
+
+function toggleTranslateButton() {
+    translateBtn.disabled = !sourceText.value.trim();
+}
+
+function swapLanguages() {
+    if (sourceLang.value === 'auto') return;
+    
+    const sourceValue = sourceLang.value;
+    const targetValue = targetLang.value;
+    const sourceTextValue = sourceText.value;
+    const translationValue = translationResult.textContent;
+    
+    sourceLang.value = targetValue;
+    targetLang.value = sourceValue;
+    sourceText.value = translationValue;
+    translationResult.innerHTML = sourceTextValue || '<div class="text-center text-muted mt-5"><i class="fas fa-language fa-3x mb-3"></i><p>Translation will appear here</p></div>';
+    
+    updateCharCount();
+    toggleTranslateButton();
+    
+    if (!sourceTextValue) {
+        copyBtn.disabled = true;
+        speakBtn.disabled = true;
+        translationResult.classList.remove('has-content');
+    }
+}
+
+function clearText() {
+    sourceText.value = '';
+    translationResult.innerHTML = '<div class="text-center text-muted mt-5"><i class="fas fa-language fa-3x mb-3"></i><p>Translation will appear here</p></div>';
+    translationResult.classList.remove('has-content');
+    detectedLang.textContent = '';
+    copyBtn.disabled = true;
+    speakBtn.disabled = true;
+    updateCharCount();
+    toggleTranslateButton();
+}
+
+async function pasteText() {
+    try {
+        const text = await navigator.clipboard.readText();
+        sourceText.value = text;
+        updateCharCount();
+        toggleTranslateButton();
+    } catch (error) {
+        console.error('Failed to paste text:', error);
+        showError('Failed to paste text from clipboard');
+    }
+}
+
+async function copyTranslation() {
+    try {
+        await navigator.clipboard.writeText(translationResult.textContent);
+        showSuccess('Translation copied to clipboard');
+    } catch (error) {
+        console.error('Failed to copy text:', error);
+        showError('Failed to copy translation');
+    }
+}
+
+function speakTranslation() {
+    if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(translationResult.textContent);
+        utterance.lang = getLanguageCode(targetLang.value);
+        speechSynthesis.speak(utterance);
+    } else {
+        showError('Text-to-speech not supported in this browser');
+    }
+}
+
+// History management
+function addToHistory(source, translation, sourceLang, targetLang) {
+    const historyItem = {
+        id: Date.now(),
+        source: source,
+        translation: translation,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+        timestamp: new Date().toISOString()
+    };
+    
+    translationHistory.unshift(historyItem);
+    
+    // Keep only last 50 translations
+    if (translationHistory.length > 50) {
+        translationHistory = translationHistory.slice(0, 50);
+    }
+    
+    localStorage.setItem('translationHistory', JSON.stringify(translationHistory));
+    displayHistory();
+}
+
+function displayHistory() {
+    if (translationHistory.length === 0) {
+        historyContainer.innerHTML = '<div class="text-center text-muted"><i class="fas fa-history fa-2x mb-2"></i><p>No translations yet</p></div>';
+        return;
+    }
+    
+    historyContainer.innerHTML = translationHistory.map(item => `
+        <div class="history-item" onclick="loadHistoryItem('${item.id}')">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <div class="fw-bold text-primary mb-1">${escapeHtml(item.source)}</div>
+                    <div class="text-success mb-2">${escapeHtml(item.translation)}</div>
+                    <small class="text-muted">
+                        ${getLanguageName(item.sourceLang)} → ${getLanguageName(item.targetLang)} • 
+                        ${new Date(item.timestamp).toLocaleString()}
+                    </small>
+                </div>
+                <button class="btn btn-sm btn-outline-danger ms-2" onclick="removeHistoryItem(event, '${item.id}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function loadHistoryItem(id) {
+    const item = translationHistory.find(h => h.id == id);
+    if (item) {
+        sourceText.value = item.source;
+        sourceLang.value = item.sourceLang;
+        targetLang.value = item.targetLang;
+        translationResult.innerHTML = item.translation;
+        translationResult.classList.add('has-content');
+        
+        updateCharCount();
+        toggleTranslateButton();
+        copyBtn.disabled = false;
+        speakBtn.disabled = false;
+    }
+}
+
+function removeHistoryItem(event, id) {
+    event.stopPropagation();
+    translationHistory = translationHistory.filter(h => h.id != id);
+    localStorage.setItem('translationHistory', JSON.stringify(translationHistory));
+    displayHistory();
+}
+
+function clearHistory() {
+    if (confirm('Are you sure you want to clear all translation history?')) {
+        translationHistory = [];
+        localStorage.removeItem('translationHistory');
+        displayHistory();
+        showSuccess('Translation history cleared');
+    }
+}
+
+// Modal functions
+function showModelModal() {
+    modelModal.show();
+}
+
+// UI feedback functions
+function showLoading(message = 'Loading...') {
+    loadingOverlay.querySelector('div:last-child').textContent = message;
+    loadingOverlay.classList.add('show');
+}
+
+function hideLoading() {
+    loadingOverlay.classList.remove('show');
+}
+
+function showSuccess(message) {
+    // Create and show success toast/notification
+    showNotification(message, 'success');
+}
+
+function showError(message) {
+    // Create and show error toast/notification
+    showNotification(message, 'error');
+}
+
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show position-fixed`;
+    notification.style.cssText = 'top: 20px; right: 20px; z-index: 10000; min-width: 300px;';
+    notification.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto dismiss after 5 seconds
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.remove();
+        }
+    }, 5000);
+}
+
+// Utility helper functions
+function getLanguageName(code) {
+    const languages = {
+        'auto': 'Auto-detect',
+        'deu_Latn': 'German',
+        'eng_Latn': 'English',
+        'fra_Latn': 'French',
+        'spa_Latn': 'Spanish',
+        'ita_Latn': 'Italian',
+        'por_Latn': 'Portuguese',
+        'nld_Latn': 'Dutch',
+        'rus_Cyrl': 'Russian',
+        'jpn_Jpan': 'Japanese',
+        'kor_Hang': 'Korean',
+        'zho_Hans': 'Chinese (Simplified)',
+        'zho_Hant': 'Chinese (Traditional)',
+        'ara_Arab': 'Arabic',
+        'hin_Deva': 'Hindi',
+        'ben_Beng': 'Bengali',
+        'urd_Arab': 'Urdu'
+    };
+    return languages[code] || code;
+}
+
+function getLanguageCode(floresCode) {
+    const mapping = {
+        'deu_Latn': 'de',
+        'eng_Latn': 'en',
+        'fra_Latn': 'fr',
+        'spa_Latn': 'es',
+        'ita_Latn': 'it',
+        'por_Latn': 'pt',
+        'nld_Latn': 'nl',
+        'rus_Cyrl': 'ru',
+        'jpn_Jpan': 'ja',
+        'kor_Hang': 'ko',
+        'zho_Hans': 'zh-CN',
+        'zho_Hant': 'zh-TW',
+        'ara_Arab': 'ar',
+        'hin_Deva': 'hi',
+        'ben_Beng': 'bn',
+        'urd_Arab': 'ur'
+    };
+    return mapping[floresCode] || 'en';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
 // Service worker registration for PWA capabilities (optional)
 if ('serviceWorker' in navigator) {

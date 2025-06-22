@@ -1,4 +1,3 @@
-# List of NLLB CTranslate2 models to evaluate (pre-converted CTranslate2 models)
 NLLB_MODELS = [
     {
         "name": "NLLB-200-3.3B",
