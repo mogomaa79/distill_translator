@@ -1,4 +1,4 @@
-# NLLB Translator - German ↔ English Web App
+# Translator - German ↔ English Web App
 
 A beautiful, modern web application for bidirectional German-English translation using Distilled LLMs for optimized inference.
 
