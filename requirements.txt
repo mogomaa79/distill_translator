@@ -11,3 +11,6 @@ redis>=4.5.0
 django-cors-headers>=4.0.0
 djangorestframework>=3.14.0
 python-dotenv>=1.0.0
+# OpenNMT v3 dependencies
+OpenNMT-py>=3.0.0
+subword-nmt>=0.3.8

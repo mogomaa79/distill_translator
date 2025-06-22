@@ -7,8 +7,8 @@ from rest_framework.response import Response
 from rest_framework import status
 import json
 import logging
-from .translation_service import translation_service
-from config import NLLB_MODELS, SUPPORTED_LANGUAGES
+from .opennmt_translation_service import opennmt_translation_service
+from config import OPENNMT_MODELS, SUPPORTED_LANGUAGES
 
 logger = logging.getLogger(__name__)
 
@@ -16,21 +16,21 @@ def index(request):
     """Main translation interface"""
     context = {
         'supported_languages': SUPPORTED_LANGUAGES,
-        'available_models': [model['name'] for model in NLLB_MODELS],
-        'model_info': translation_service.get_model_info()
+        'available_models': [model['name'] for model in OPENNMT_MODELS],
+        'model_info': opennmt_translation_service.get_model_info()
     }
     return render(request, 'translator/index.html', context)
 
 @api_view(['POST'])
 def translate_text(request):
     """
-    API endpoint for text translation
+    API endpoint for text translation using OpenNMT
     
     Expected JSON payload:
     {
         "text": "Hello world",
-        "source_lang": "eng_Latn",  # optional, auto-detect if not provided
-        "target_lang": "deu_Latn",  # optional, auto-determined if not provided
+        "source_lang": "en",        # optional, auto-detect if not provided
+        "target_lang": "de",        # optional, auto-determined if not provided
         "auto_detect": true         # optional, default true
     }
     """
@@ -62,8 +62,8 @@ def translate_text(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Perform translation
-        result = translation_service.translate(
+        # Perform translation using OpenNMT
+        result = opennmt_translation_service.translate(
             text=text,
             source_lang=source_lang,
             target_lang=target_lang,
@@ -94,7 +94,7 @@ def translate_text(request):
 def model_info(request):
     """Get current model information and available options"""
     try:
-        info = translation_service.get_model_info()
+        info = opennmt_translation_service.get_model_info()
         return Response(info, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Error getting model info: {str(e)}")
@@ -106,11 +106,11 @@ def model_info(request):
 @api_view(['POST'])
 def switch_model(request):
     """
-    Switch to a different translation model
+    Switch to a different OpenNMT model
     
     Expected JSON payload:
     {
-        "model_index": 0  # Index of model in NLLB_MODELS
+        "model_index": 0  # Index of model in OPENNMT_MODELS
     }
     """
     try:
@@ -123,19 +123,19 @@ def switch_model(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        if not isinstance(model_index, int) or model_index < 0 or model_index >= len(NLLB_MODELS):
+        if not isinstance(model_index, int) or model_index < 0 or model_index >= len(OPENNMT_MODELS):
             return Response(
-                {'error': f'model_index must be between 0 and {len(NLLB_MODELS)-1}'}, 
+                {'error': f'model_index must be between 0 and {len(OPENNMT_MODELS)-1}'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        success = translation_service.switch_model(model_index)
+        success = opennmt_translation_service.switch_model(model_index)
         
         if success:
-            info = translation_service.get_model_info()
+            info = opennmt_translation_service.get_model_info()
             return Response({
                 'success': True,
-                'message': f'Successfully switched to {NLLB_MODELS[model_index]["name"]}',
+                'message': f'Successfully switched to {OPENNMT_MODELS[model_index]["name"]}',
                 'model_info': info
             }, status=status.HTTP_200_OK)
         else:
@@ -171,7 +171,7 @@ def detect_language(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        detected_lang = translation_service.detect_language(text)
+        detected_lang = opennmt_translation_service.detect_language(text)
         
         return Response({
             'detected_language': detected_lang,
@@ -190,11 +190,12 @@ def detect_language(request):
 def health_check(request):
     """Health check endpoint"""
     try:
-        model_loaded = translation_service.translator is not None
+        model_loaded = opennmt_translation_service.translator is not None
         return Response({
             'status': 'healthy' if model_loaded else 'unhealthy',
             'model_loaded': model_loaded,
-            'device': translation_service.device,
+            'device': opennmt_translation_service.device,
+            'model_type': 'OpenNMT v3',
             'timestamp': request.META.get('HTTP_DATE', 'unknown')
         }, status=status.HTTP_200_OK)
     except Exception as e:

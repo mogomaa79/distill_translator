@@ -399,6 +399,9 @@ function showNotification(message, type) {
 function getLanguageName(code) {
     const languages = {
         'auto': 'Auto-detect',
+        'de': 'German',
+        'en': 'English',
+        // Legacy NLLB codes for backward compatibility
         'deu_Latn': 'German',
         'eng_Latn': 'English',
         'fra_Latn': 'French',
@@ -421,6 +424,10 @@ function getLanguageName(code) {
 
 function getLanguageCode(floresCode) {
     const mapping = {
+        // OpenNMT codes
+        'de': 'de',
+        'en': 'en',
+        // Legacy NLLB codes for backward compatibility
         'deu_Latn': 'de',
         'eng_Latn': 'en',
         'fra_Latn': 'fr',

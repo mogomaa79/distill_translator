@@ -1,46 +1,51 @@
-NLLB_MODELS = [
+# OpenNMT v3 models to evaluate
+OPENNMT_MODELS = [
     {
-        "name": "NLLB-200-3.3B",
-        "repo_id": "entai2965/nllb-200-3.3B-ctranslate2",
-        "local_dir": "nllb-200-3.3B-ctranslate2",
-    },
-    {
-        "name": "NLLB-200-1.3B-distilled",
-        "repo_id": "entai2965/nllb-200-distilled-1.3B-ctranslate2",
-        "local_dir": "nllb-200-distilled-1.3B-ctranslate2",
-    },
-    {
-        "name": "NLLB-200-600M-distilled",
-        "repo_id": "entai2965/nllb-200-distilled-600M-ctranslate2",
-        "local_dir": "nllb-200-distilled-600M-ctranslate2",
-    },
+        "name": "OpenNMT-v3-EN-DE-Large",
+        "model_url": "https://s3.amazonaws.com/opennmt-models/v3-py/ende/ende-large-withoutBT.pt",
+        "local_model_path": "ende-large-withoutBT.pt",
+        "bpe_url": "https://s3.amazonaws.com/opennmt-models/v3-py/ende/subwords.en_de.bpe",
+        "bpe_path": "subwords.en_de.bpe",
+        "ct2_model_path": "ende-large-ct2"  # CTranslate2 converted model path
+    }
 ]
-
-# SentencePiece model
-SPM_URL = "https://s3.amazonaws.com/opennmt-models/nllb-200/flores200_sacrebleu_tokenizer_spm.model"
-SPM_PATH = "flores200_sacrebleu_tokenizer_spm.model"
 
 # IWSLT14 Test Set Paths
 IWSLT_TEST_SRC = "data/de-en/test.en"
 IWSLT_TEST_REF = "data/de-en/test.de"
 
-# Translation settings
-SOURCE_LANGUAGE = "eng_Latn"
-TARGET_LANGUAGE = "deu_Latn"
+# Translation settings for OpenNMT (different from NLLB language codes)
+SOURCE_LANGUAGE = "en"  # English source
+TARGET_LANGUAGE = "de"  # German target
 
-# Default model for web app (600M distilled)
-DEFAULT_MODEL_INDEX = 2
+# Default model for web app
+DEFAULT_MODEL_INDEX = 0
 
-# Supported language pairs for the web app
+# Supported language pairs for the web app (updated for OpenNMT)
 SUPPORTED_LANGUAGES = {
-    "eng_Latn": "English",
-    "deu_Latn": "German",
-    "fra_Latn": "French",
-    "spa_Latn": "Spanish",
-    "ita_Latn": "Italian",
-    "por_Latn": "Portuguese",
-    "rus_Cyrl": "Russian",
-    "jpn_Jpan": "Japanese",
-    "kor_Hang": "Korean",
-    "zho_Hans": "Chinese (Simplified)",
+    'en': 'English',
+    'de': 'German',
 }
+
+# Legacy NLLB configuration (kept for backward compatibility)
+NLLB_MODELS = [
+    {
+        "name": "NLLB-200-3.3B",
+        "repo_id": "entai2965/nllb-200-3.3B-ctranslate2",
+        "local_dir": "nllb-200-3.3B-ctranslate2"
+    },
+    {
+        "name": "NLLB-200-1.3B-distilled",
+        "repo_id": "entai2965/nllb-200-distilled-1.3B-ctranslate2",
+        "local_dir": "nllb-200-distilled-1.3B-ctranslate2"
+    },
+    {
+        "name": "NLLB-200-600M-distilled",
+        "repo_id": "entai2965/nllb-200-distilled-600M-ctranslate2",
+        "local_dir": "nllb-200-distilled-600M-ctranslate2"
+    },
+]
+
+# SentencePiece model (legacy)
+SPM_URL = "https://s3.amazonaws.com/opennmt-models/nllb-200/flores200_sacrebleu_tokenizer_spm.model"
+SPM_PATH = "flores200_sacrebleu_tokenizer_spm.model"
